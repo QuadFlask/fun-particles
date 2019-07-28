@@ -1,26 +1,407 @@
-import React from 'react';
-import logo from './logo.svg';
+import React, {Component} from 'react';
 import './App.css';
 
-const App: React.FC = () => {
-  return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
-  );
+export class App extends Component {
+    canvas: HTMLCanvasElement | null = null;
+    ctx: CanvasRenderingContext2D | null = null;
+    particles: Particle[] = [];
+    frames: number = 0;
+    state = {
+        particleCount: 0
+    };
+
+    canvasRef = (canvas: HTMLCanvasElement) => {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext("2d");
+
+        this.ctx!.fillStyle = 'black';
+        this.ctx!.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+        this.ctx!.globalCompositeOperation = 'lighter';
+        setInterval(() => {
+            this.frames++;
+            // this.ctx!.fillStyle = 'rgba(0,0,0,0.2)';
+            // this.ctx!.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+            stackBlurCanvasRGBA(canvas, 0, 0, canvas.clientWidth, canvas.clientHeight, 1);
+
+            this.ctx!.strokeStyle = 'white';
+            this.ctx!.lineWidth = 1.5;
+
+            this.particles.forEach(p => {
+                this.ctx!.beginPath();
+                this.ctx!.strokeStyle = p.color;
+                this.ctx!.moveTo(p.x, p.y);
+                this.ctx!.lineTo(p.ox, p.oy);
+                this.ctx!.stroke();
+                p.update();
+            });
+
+            if (this.frames % 60 === 0) {
+                this.particles = this.particles.filter(p => !p.isOutOfBox);
+                this.setState({
+                    particleCount: this.particles.length
+                });
+            }
+        }, 1000 / 60);
+    };
+
+    handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+        //@ts-ignore
+        const x = e.clientX - e.target.offsetLeft;
+        //@ts-ignore
+        const y = e.clientY - e.target.offsetTop;
+        for (let i = 0; i < 100; i++)
+            this.particles.push(Particle.random(this.canvas!.clientWidth, this.canvas!.clientHeight,
+                0, Math.random() * 5,
+                0.1,
+                x, y));
+    };
+
+    render() {
+        return <div className="App">
+            <canvas ref={this.canvasRef} width={500} height={500} onClick={this.handleClick}/>
+            <p>{this.state.particleCount}</p>
+        </div>
+    }
+}
+
+class Particle {
+    w: number = 0;
+    h: number = 0;
+    ox: number = 0;
+    oy: number = 0;
+    x: number = 0;
+    y: number = 0;
+    vx: number = 0;
+    vy: number = 0;
+    ax: number = 0;
+    ay: number = 0;
+    d: number = 0;
+    color: string = 'white';
+
+    static random(w: number, h: number, v: number = 1, a: number = 0, d: number = 0.1, x: number = -1, y: number = -1) {
+        const p = new Particle();
+        p.x = x === -1 ? Math.random() * w : x;
+        p.y = y === -1 ? Math.random() * h : y;
+        p.ox = p.x;
+        p.oy = p.y;
+        const theta = Math.PI * 2 * Math.random();
+        v *= Math.random();
+        a *= Math.random();
+        p.vx = Math.cos(theta) * v;
+        p.vy = Math.sin(theta) * v;
+        p.ax = Math.cos(theta) * a;
+        p.ay = Math.sin(theta) * a;
+        p.d = d;
+        p.w = w;
+        p.h = h;
+        p.color = `hsla(${Math.random() * 360}, 100%, 50%, 1)`;
+
+        return p;
+    }
+
+    update() {
+        // if (this.x > this.w || this.x < 0) this.vx *= -1;
+        // if (this.y > this.h || this.y < 0) this.vy *= -1;
+        this.ox = this.x;
+        this.oy = this.y;
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vx += this.ax;
+        this.vy += this.ay;
+        // this.ax *= this.d;
+        // this.ay *= this.d;
+
+        const dx = this.w / 2 - this.x;
+        const dy = this.h / 2 - this.y;
+        let d = Math.sqrt(dx * dx + dy * dy);
+        d = d * d * d + 1;
+        const fx = 25 * dx / d;
+        const fy = 25 * dy / d;
+        this.ax = fx;
+        this.ay = fy;
+    }
+
+    get isOutOfBox() {
+        return (this.x > this.w || this.x < 0) ||
+            (this.y > this.h || this.y < 0);
+    }
+}
+
+
+const mul_table = [
+    512, 512, 456, 512, 328, 456, 335, 512, 405, 328, 271, 456, 388, 335, 292, 512,
+    454, 405, 364, 328, 298, 271, 496, 456, 420, 388, 360, 335, 312, 292, 273, 512,
+    482, 454, 428, 405, 383, 364, 345, 328, 312, 298, 284, 271, 259, 496, 475, 456,
+    437, 420, 404, 388, 374, 360, 347, 335, 323, 312, 302, 292, 282, 273, 265, 512,
+    497, 482, 468, 454, 441, 428, 417, 405, 394, 383, 373, 364, 354, 345, 337, 328,
+    320, 312, 305, 298, 291, 284, 278, 271, 265, 259, 507, 496, 485, 475, 465, 456,
+    446, 437, 428, 420, 412, 404, 396, 388, 381, 374, 367, 360, 354, 347, 341, 335,
+    329, 323, 318, 312, 307, 302, 297, 292, 287, 282, 278, 273, 269, 265, 261, 512,
+    505, 497, 489, 482, 475, 468, 461, 454, 447, 441, 435, 428, 422, 417, 411, 405,
+    399, 394, 389, 383, 378, 373, 368, 364, 359, 354, 350, 345, 341, 337, 332, 328,
+    324, 320, 316, 312, 309, 305, 301, 298, 294, 291, 287, 284, 281, 278, 274, 271,
+    268, 265, 262, 259, 257, 507, 501, 496, 491, 485, 480, 475, 470, 465, 460, 456,
+    451, 446, 442, 437, 433, 428, 424, 420, 416, 412, 408, 404, 400, 396, 392, 388,
+    385, 381, 377, 374, 370, 367, 363, 360, 357, 354, 350, 347, 344, 341, 338, 335,
+    332, 329, 326, 323, 320, 318, 315, 312, 310, 307, 304, 302, 299, 297, 294, 292,
+    289, 287, 285, 282, 280, 278, 275, 273, 271, 269, 267, 265, 263, 261, 259];
+
+
+const shg_table = [
+    9, 11, 12, 13, 13, 14, 14, 15, 15, 15, 15, 16, 16, 16, 16, 17,
+    17, 17, 17, 17, 17, 17, 18, 18, 18, 18, 18, 18, 18, 18, 18, 19,
+    19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 20, 20, 20,
+    20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 21,
+    21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21,
+    21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 22, 22, 22, 22, 22, 22,
+    22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22,
+    22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 23,
+    23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23,
+    23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23,
+    23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23,
+    23, 23, 23, 23, 23, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24,
+    24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24,
+    24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24,
+    24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24,
+    24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24];
+
+
+function stackBlurCanvasRGBA(canvas: HTMLCanvasElement, top_x: number, top_y: number, width: number, height: number, radius: number) {
+    if (isNaN(radius) || radius < 1) return;
+    radius |= 0;
+
+    var context = canvas.getContext("2d");
+    var imageData = context!.getImageData(top_x, top_y, width, height);
+
+    var pixels = imageData.data;
+
+    var x, y, i, p, yp, yi, yw, r_sum, g_sum, b_sum, a_sum,
+        r_out_sum, g_out_sum, b_out_sum, a_out_sum,
+        r_in_sum, g_in_sum, b_in_sum, a_in_sum,
+        pr, pg, pb, pa, rbs;
+
+    var div = radius + radius + 1;
+    var w4 = width << 2;
+    var widthMinus1 = width - 1;
+    var heightMinus1 = height - 1;
+    var radiusPlus1 = radius + 1;
+    var sumFactor = radiusPlus1 * (radiusPlus1 + 1) / 2;
+
+    var stackStart = new BlurStack();
+    var stack: BlurStack | null = stackStart;
+    var stackEnd: BlurStack | null = null;
+    for (i = 1; i < div; i++) {
+        stack = stack.next = new BlurStack();
+        if (i == radiusPlus1) stackEnd = stack;
+    }
+    stack.next = stackStart;
+    var stackIn = null;
+    var stackOut = null;
+
+    yw = yi = 0;
+
+    var mul_sum = mul_table[radius];
+    var shg_sum = shg_table[radius];
+
+    for (y = 0; y < height; y++) {
+        r_in_sum = g_in_sum = b_in_sum = a_in_sum = r_sum = g_sum = b_sum = a_sum = 0;
+
+        r_out_sum = radiusPlus1 * (pr = pixels[yi]);
+        g_out_sum = radiusPlus1 * (pg = pixels[yi + 1]);
+        b_out_sum = radiusPlus1 * (pb = pixels[yi + 2]);
+        a_out_sum = radiusPlus1 * (pa = pixels[yi + 3]);
+
+        r_sum += sumFactor * pr;
+        g_sum += sumFactor * pg;
+        b_sum += sumFactor * pb;
+        a_sum += sumFactor * pa;
+
+        stack = stackStart;
+
+        for (i = 0; i < radiusPlus1; i++) {
+            stack!.r = pr;
+            stack!.g = pg;
+            stack!.b = pb;
+            stack!.a = pa;
+            stack = stack!.next;
+        }
+
+        for (i = 1; i < radiusPlus1; i++) {
+            p = yi + ((widthMinus1 < i ? widthMinus1 : i) << 2);
+            r_sum += (stack!.r = (pr = pixels[p])) * (rbs = radiusPlus1 - i);
+            g_sum += (stack!.g = (pg = pixels[p + 1])) * rbs;
+            b_sum += (stack!.b = (pb = pixels[p + 2])) * rbs;
+            a_sum += (stack!.a = (pa = pixels[p + 3])) * rbs;
+
+            r_in_sum += pr;
+            g_in_sum += pg;
+            b_in_sum += pb;
+            a_in_sum += pa;
+
+            stack = stack!.next;
+        }
+
+
+        stackIn = stackStart;
+        stackOut = stackEnd;
+        for (x = 0; x < width; x++) {
+            pixels[yi + 3] = pa = (a_sum * mul_sum) >> shg_sum;
+            if (pa != 0) {
+                pa = 255 / pa;
+                pixels[yi] = ((r_sum * mul_sum) >> shg_sum) * pa;
+                pixels[yi + 1] = ((g_sum * mul_sum) >> shg_sum) * pa;
+                pixels[yi + 2] = ((b_sum * mul_sum) >> shg_sum) * pa;
+            } else {
+                pixels[yi] = pixels[yi + 1] = pixels[yi + 2] = 0;
+            }
+
+            r_sum -= r_out_sum;
+            g_sum -= g_out_sum;
+            b_sum -= b_out_sum;
+            a_sum -= a_out_sum;
+
+            r_out_sum -= stackIn!.r;
+            g_out_sum -= stackIn!.g;
+            b_out_sum -= stackIn!.b;
+            a_out_sum -= stackIn!.a;
+
+            p = (yw + ((p = x + radius + 1) < widthMinus1 ? p : widthMinus1)) << 2;
+
+            r_in_sum += (stackIn!.r = pixels[p]);
+            g_in_sum += (stackIn!.g = pixels[p + 1]);
+            b_in_sum += (stackIn!.b = pixels[p + 2]);
+            a_in_sum += (stackIn!.a = pixels[p + 3]);
+
+            r_sum += r_in_sum;
+            g_sum += g_in_sum;
+            b_sum += b_in_sum;
+            a_sum += a_in_sum;
+
+            stackIn = stackIn!.next;
+
+            r_out_sum += (pr = stackOut!.r);
+            g_out_sum += (pg = stackOut!.g);
+            b_out_sum += (pb = stackOut!.b);
+            a_out_sum += (pa = stackOut!.a);
+
+            r_in_sum -= pr;
+            g_in_sum -= pg;
+            b_in_sum -= pb;
+            a_in_sum -= pa;
+
+            stackOut = stackOut!.next;
+
+            yi += 4;
+        }
+        yw += width;
+    }
+
+
+    for (x = 0; x < width; x++) {
+        g_in_sum = b_in_sum = a_in_sum = r_in_sum = g_sum = b_sum = a_sum = r_sum = 0;
+
+        yi = x << 2;
+        r_out_sum = radiusPlus1 * (pr = pixels[yi]);
+        g_out_sum = radiusPlus1 * (pg = pixels[yi + 1]);
+        b_out_sum = radiusPlus1 * (pb = pixels[yi + 2]);
+        a_out_sum = radiusPlus1 * (pa = pixels[yi + 3]);
+
+        r_sum += sumFactor * pr;
+        g_sum += sumFactor * pg;
+        b_sum += sumFactor * pb;
+        a_sum += sumFactor * pa;
+
+        stack = stackStart;
+
+        for (i = 0; i < radiusPlus1; i++) {
+            stack!.r = pr;
+            stack!.g = pg;
+            stack!.b = pb;
+            stack!.a = pa;
+            stack = stack!.next;
+        }
+
+        yp = width;
+
+        for (i = 1; i <= radius; i++) {
+            yi = (yp + x) << 2;
+
+            r_sum += (stack!.r = (pr = pixels[yi])) * (rbs = radiusPlus1 - i);
+            g_sum += (stack!.g = (pg = pixels[yi + 1])) * rbs;
+            b_sum += (stack!.b = (pb = pixels[yi + 2])) * rbs;
+            a_sum += (stack!.a = (pa = pixels[yi + 3])) * rbs;
+
+            r_in_sum += pr;
+            g_in_sum += pg;
+            b_in_sum += pb;
+            a_in_sum += pa;
+
+            stack = stack!.next;
+
+            if (i < heightMinus1) {
+                yp += width;
+            }
+        }
+
+        yi = x;
+        stackIn = stackStart;
+        stackOut = stackEnd;
+        for (y = 0; y < height; y++) {
+            p = yi << 2;
+            pixels[p + 3] = pa = (a_sum * mul_sum) >> shg_sum;
+            if (pa > 0) {
+                pa = 255 / pa;
+                pixels[p] = ((r_sum * mul_sum) >> shg_sum) * pa;
+                pixels[p + 1] = ((g_sum * mul_sum) >> shg_sum) * pa;
+                pixels[p + 2] = ((b_sum * mul_sum) >> shg_sum) * pa;
+            } else {
+                pixels[p] = pixels[p + 1] = pixels[p + 2] = 0;
+            }
+
+            r_sum -= r_out_sum;
+            g_sum -= g_out_sum;
+            b_sum -= b_out_sum;
+            a_sum -= a_out_sum;
+
+            r_out_sum -= stackIn!.r;
+            g_out_sum -= stackIn!.g;
+            b_out_sum -= stackIn!.b;
+            a_out_sum -= stackIn!.a;
+
+            p = (x + (((p = y + radiusPlus1) < heightMinus1 ? p : heightMinus1) * width)) << 2;
+
+            r_sum += (r_in_sum += (stackIn!.r = pixels[p]));
+            g_sum += (g_in_sum += (stackIn!.g = pixels[p + 1]));
+            b_sum += (b_in_sum += (stackIn!.b = pixels[p + 2]));
+            a_sum += (a_in_sum += (stackIn!.a = pixels[p + 3]));
+
+            stackIn = stackIn!.next;
+
+            r_out_sum += (pr = stackOut!.r);
+            g_out_sum += (pg = stackOut!.g);
+            b_out_sum += (pb = stackOut!.b);
+            a_out_sum += (pa = stackOut!.a);
+
+            r_in_sum -= pr;
+            g_in_sum -= pg;
+            b_in_sum -= pb;
+            a_in_sum -= pa;
+
+            stackOut = stackOut!.next;
+
+            yi += width;
+        }
+    }
+
+    context!.putImageData(imageData, top_x, top_y);
+}
+
+class BlurStack {
+    r: number = 0;
+    g: number = 0;
+    b: number = 0;
+    a: number = 0;
+    next: BlurStack | null = null;
 }
 
 export default App;
