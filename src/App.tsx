@@ -1,7 +1,7 @@
 import React, {Component} from 'react';
 import './App.css';
 
-export class App extends Component {
+class GravityParticles extends Component {
     canvas: HTMLCanvasElement | null = null;
     ctx: CanvasRenderingContext2D | null = null;
     particles: Particle[] = [];
@@ -57,9 +57,109 @@ export class App extends Component {
     };
 
     render() {
-        return <div className="App">
+        return <div>
             <canvas ref={this.canvasRef} width={500} height={500} onClick={this.handleClick}/>
             <p>{this.state.particleCount}</p>
+        </div>
+    }
+}
+
+const ImageUrl = 'https://images.unsplash.com/photo-1564172875749-5b9b4e0972e0?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=500&q=80'; //https://images.unsplash.com/photo-1564259291542-ffdacda9ec1a?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=334&q=80';
+
+class ImageParticles extends Component {
+    canvas: HTMLCanvasElement | null = null;
+    ctx: CanvasRenderingContext2D | null = null;
+    particles: Particle[] = [];
+    frames: number = 0;
+    state = {
+        particleCount: 0,
+        lastFrame: 0,
+        shrink: false
+    };
+
+    canvasRef = async (canvas: HTMLCanvasElement) => {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext("2d");
+
+        this.ctx!.fillStyle = 'black';
+        this.ctx!.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+        //this.ctx!.globalCompositeOperation = 'lighter';
+        setInterval(() => {
+            this.frames++;
+            this.ctx!.fillStyle = 'rgba(0,0,0,0)';
+            this.ctx!.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+            stackBlurCanvasRGBA(canvas, 0, 0, canvas.clientWidth, canvas.clientHeight, 1);
+
+            this.ctx!.strokeStyle = 'white';
+            this.ctx!.lineWidth = 1.5;
+
+            this.particles.forEach(p => {
+                this.ctx!.beginPath();
+                this.ctx!.strokeStyle = p.color;
+                this.ctx!.moveTo(p.x, p.y);
+                this.ctx!.lineTo(p.ox, p.oy);
+                this.ctx!.stroke();
+                this.ctx!.fillStyle = p.color;
+                this.ctx!.fillRect(p.x, p.y, 1, 1);
+                p.update2(this.state.shrink, this.frames - this.state.lastFrame);
+            });
+        }, 1000 / 60);
+
+        const gap = 4;
+        const imageData = getPixels(await loadImage(ImageUrl));
+        const cx = (canvas.clientWidth - imageData.width) / 2;
+        const cy = (canvas.clientHeight - imageData.height) / 2;
+
+        for (let x = 0; x < imageData.width; x += gap) {
+            for (let y = 0; y < imageData.height; y += gap) {
+                const r = imageData.data[(y * imageData.width + x) * 4];
+                const g = imageData.data[(y * imageData.width + x) * 4 + 1];
+                const b = imageData.data[(y * imageData.width + x) * 4 + 2];
+                const color = `rgb(${r},${g},${b},${1})`;
+                this.particles.push(Particle.random(canvas.clientWidth, canvas.clientHeight, 0, 0, 0, x + cx, y + cy, color));
+            }
+        }
+    };
+
+    handleClick = () => {
+        this.setState({
+            lastFrame: this.frames,
+            shrink: !this.state.shrink
+        });
+    };
+
+    render() {
+        return <div>
+            <canvas ref={this.canvasRef} width={800} height={500} onClick={this.handleClick}/>
+        </div>
+    }
+}
+
+async function loadImage(src: string) {
+    return new Promise<HTMLImageElement>((res) => {
+        const image = new Image();
+        image.crossOrigin = "Anonymous";
+        image.onload = function () {
+            res(image);
+        };
+        image.src = src;
+    });
+}
+
+function getPixels(image: HTMLImageElement) {
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(image, 0, 0);
+    return ctx.getImageData(0, 0, image.width, image.height);
+}
+
+export class App extends Component {
+    render() {
+        return <div className="App">
+            {/*<GravityParticles/>*/}
+            <ImageParticles/>
         </div>
     }
 }
@@ -67,24 +167,32 @@ export class App extends Component {
 class Particle {
     w: number = 0;
     h: number = 0;
-    ox: number = 0;
-    oy: number = 0;
+    ox: number = 0; // old
+    oy: number = 0; // old
+    sx: number = 0; // start
+    sy: number = 0; // start
+    tx: number = 0; // target
+    ty: number = 0; // target
     x: number = 0;
     y: number = 0;
-    vx: number = 0;
-    vy: number = 0;
-    ax: number = 0;
-    ay: number = 0;
+    vx: number = 0; // velocity
+    vy: number = 0; // velocity
+    ax: number = 0; // acc
+    ay: number = 0; // acc
     d: number = 0;
     color: string = 'white';
 
-    static random(w: number, h: number, v: number = 1, a: number = 0, d: number = 0.1, x: number = -1, y: number = -1) {
+    static random(w: number, h: number, v: number = 1, a: number = 0, d: number = 0.1, x: number = -1, y: number = -1, color?: string) {
         const p = new Particle();
         p.x = x === -1 ? Math.random() * w : x;
         p.y = y === -1 ? Math.random() * h : y;
         p.ox = p.x;
         p.oy = p.y;
+        p.sx = p.x;
+        p.sy = p.y;
         const theta = Math.PI * 2 * Math.random();
+        p.tx = Math.cos(theta) * (w + h);
+        p.ty = Math.sin(theta) * (w + h);
         v *= Math.random();
         a *= Math.random();
         p.vx = Math.cos(theta) * v;
@@ -94,31 +202,28 @@ class Particle {
         p.d = d;
         p.w = w;
         p.h = h;
-        p.color = `hsla(${Math.random() * 360}, 100%, 50%, 1)`;
+        p.color = color === undefined ? `hsla(${Math.random() * 360}, 100%, 50%, 1)` : p.color = color;
 
         return p;
     }
 
     update() {
-        // if (this.x > this.w || this.x < 0) this.vx *= -1;
-        // if (this.y > this.h || this.y < 0) this.vy *= -1;
         this.ox = this.x;
         this.oy = this.y;
         this.x += this.vx;
         this.y += this.vy;
         this.vx += this.ax;
         this.vy += this.ay;
-        // this.ax *= this.d;
-        // this.ay *= this.d;
+    }
 
-        const dx = this.w / 2 - this.x;
-        const dy = this.h / 2 - this.y;
-        let d = Math.sqrt(dx * dx + dy * dy);
-        d = d * d * d + 1;
-        const fx = 25 * dx / d;
-        const fy = 25 * dy / d;
-        this.ax = fx;
-        this.ay = fy;
+    update2(shrink: boolean, i: number, d: number = 1200.0) {
+        this.ox = this.x;
+        this.oy = this.y;
+        const p = Math.max(0, Math.min(shrink ? 1 - i / d : i / d, 1));
+        const dx = this.tx - this.sx;
+        const dy = this.ty - this.sy;
+        this.x = this.sx + dx * p * p;
+        this.y = this.sy + dy * p * p;
     }
 
     get isOutOfBox() {
@@ -126,7 +231,6 @@ class Particle {
             (this.y > this.h || this.y < 0);
     }
 }
-
 
 const mul_table = [
     512, 512, 456, 512, 328, 456, 335, 512, 405, 328, 271, 456, 388, 335, 292, 512,
