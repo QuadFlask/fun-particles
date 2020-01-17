@@ -71,10 +71,13 @@ class ImageParticles extends Component {
     ctx: CanvasRenderingContext2D | null = null;
     particles: Particle[] = [];
     frames: number = 0;
+    dpi = 1;
+    width = 1000;
+    height = 600;
     state = {
         particleCount: 0,
         lastFrame: 0,
-        shrink: false
+        shrink: false,
     };
 
     canvasRef = async (canvas: HTMLCanvasElement) => {
@@ -82,41 +85,53 @@ class ImageParticles extends Component {
         this.ctx = canvas.getContext("2d");
 
         this.ctx!.fillStyle = 'black';
-        this.ctx!.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+        this.ctx!.fillRect(0, 0, canvas.clientWidth / this.dpi, canvas.clientHeight / this.dpi);
+        this.ctx!.strokeStyle = 'white';
+        this.ctx!.lineWidth = 1.5;
         //this.ctx!.globalCompositeOperation = 'lighter';
-        setInterval(() => {
+
+        const render = () => {
+            console.time("a");
             this.frames++;
-            this.ctx!.fillStyle = 'rgba(0,0,0,0)';
-            this.ctx!.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-            stackBlurCanvasRGBA(canvas, 0, 0, canvas.clientWidth, canvas.clientHeight, 1);
+            // this.ctx!.fillStyle = 'rgba(0,0,0,0.1)';
+            // this.ctx!.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+            const ctxImageData = stackBlurCanvasRGBA(canvas, 0, 0, canvas.clientWidth / this.dpi, canvas.clientHeight / this.dpi, 1);
+            // const ctxImageData = this.ctx!.getImageData(0, 0, canvas.clientWidth / this.dpi, canvas.clientHeight / this.dpi);
 
-            this.ctx!.strokeStyle = 'white';
-            this.ctx!.lineWidth = 1.5;
-
+            const tick = this.frames - this.state.lastFrame;
             this.particles.forEach(p => {
-                this.ctx!.beginPath();
-                this.ctx!.strokeStyle = p.color;
-                this.ctx!.moveTo(p.x, p.y);
-                this.ctx!.lineTo(p.ox, p.oy);
-                this.ctx!.stroke();
-                this.ctx!.fillStyle = p.color;
-                this.ctx!.fillRect(p.x, p.y, 1, 1);
-                p.update2(this.state.shrink, this.frames - this.state.lastFrame);
+                // this.ctx!.beginPath();
+                // this.ctx!.strokeStyle = p.color;
+                // this.ctx!.moveTo(p.x, p.y);
+                // this.ctx!.lineTo(p.ox, p.oy);
+                // this.ctx!.stroke();
+                // this.ctx!.fillStyle = p.color;
+                // this.ctx!.fillRect(p.x, p.y, 1, 1);
+                if (0 <= p.x && p.x < ctxImageData.width && 0 <= p.y && p.y < ctxImageData.height) {
+                    const idx = (Math.round(p.y) * ctxImageData.width + Math.round(p.x)) * 4;
+                    ctxImageData.data[idx] = p.rgb[0];
+                    ctxImageData.data[idx + 1] = p.rgb[1];
+                    ctxImageData.data[idx + 2] = p.rgb[2];
+                }
+                p.update2(this.state.shrink, tick);
             });
-        }, 1000 / 60);
+            this.ctx!.putImageData(ctxImageData, 0, 0);
+            console.timeEnd("a");
+            requestAnimationFrame(render);
+        };
+        requestAnimationFrame(render);
 
-        const gap = 4;
+        const gap = 3;
         const imageData = getPixels(await loadImage(ImageUrl));
-        const cx = (canvas.clientWidth - imageData.width) / 2;
-        const cy = (canvas.clientHeight - imageData.height) / 2;
+        const cx = (canvas.clientWidth / this.dpi - imageData.width) / 2;
+        const cy = (canvas.clientHeight / this.dpi - imageData.height) / 2;
 
         for (let x = 0; x < imageData.width; x += gap) {
             for (let y = 0; y < imageData.height; y += gap) {
                 const r = imageData.data[(y * imageData.width + x) * 4];
                 const g = imageData.data[(y * imageData.width + x) * 4 + 1];
                 const b = imageData.data[(y * imageData.width + x) * 4 + 2];
-                const color = `rgb(${r},${g},${b},${1})`;
-                this.particles.push(Particle.random(canvas.clientWidth, canvas.clientHeight, 0, 0, 0, x + cx, y + cy, color));
+                this.particles.push(Particle.random(canvas.clientWidth / this.dpi, canvas.clientHeight / this.dpi, 0, 0, 0, x + cx, y + cy, [r, g, b]));
             }
         }
     };
@@ -130,9 +145,24 @@ class ImageParticles extends Component {
 
     render() {
         return <div>
-            <canvas ref={this.canvasRef} width={800} height={500} onClick={this.handleClick}/>
+            <canvas ref={this.canvasRef}
+                    onClick={this.handleClick}
+                    width={this.width} height={this.height}
+                    style={{width: this.width * this.dpi, height: this.height * this.dpi}}/>
         </div>
     }
+}
+
+function drawPixel(buf: ImageData, x: number, y: number, rgb: [number, number, number]) {
+    const idx = (y * buf.width + x) * 4;
+    buf.data[idx] = rgb[0];
+    buf.data[idx + 1] = rgb[1];
+    buf.data[idx + 2] = rgb[2];
+    // for (let y = 0; y < buf.height; y++)
+    //     for (let x = 0; x < buf.width; x++) {
+    //         const idx = (y * buf.width + x) * 4;
+    //
+    //     }
 }
 
 async function loadImage(src: string) {
@@ -180,9 +210,10 @@ class Particle {
     ax: number = 0; // acc
     ay: number = 0; // acc
     d: number = 0;
+    rgb: [number, number, number] = [0, 0, 0];
     color: string = 'white';
 
-    static random(w: number, h: number, v: number = 1, a: number = 0, d: number = 0.1, x: number = -1, y: number = -1, color?: string) {
+    static random(w: number, h: number, v: number = 1, a: number = 0, d: number = 0.1, x: number = -1, y: number = -1, rgb?: [number, number, number]) {
         const p = new Particle();
         p.x = x === -1 ? Math.random() * w : x;
         p.y = y === -1 ? Math.random() * h : y;
@@ -202,7 +233,9 @@ class Particle {
         p.d = d;
         p.w = w;
         p.h = h;
-        p.color = color === undefined ? `hsla(${Math.random() * 360}, 100%, 50%, 1)` : p.color = color;
+        // p.color = color === undefined ? `hsla(${Math.random() * 360}, 100%, 50%, 1)` : p.color = color;
+        if (rgb) p.rgb = rgb;
+        p.color = rgb ? `rgb(${rgb[0]},${rgb[1]},${rgb[2]})` : `hsla(${Math.random() * 360}, 100%, 50%, 1)`;
 
         return p;
     }
@@ -270,8 +303,7 @@ const shg_table = [
     24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24];
 
 
-function stackBlurCanvasRGBA(canvas: HTMLCanvasElement, top_x: number, top_y: number, width: number, height: number, radius: number) {
-    if (isNaN(radius) || radius < 1) return;
+function stackBlurCanvasRGBA(canvas: HTMLCanvasElement, top_x: number, top_y: number, width: number, height: number, radius: number): ImageData {
     radius |= 0;
 
     var context = canvas.getContext("2d");
@@ -497,7 +529,8 @@ function stackBlurCanvasRGBA(canvas: HTMLCanvasElement, top_x: number, top_y: nu
         }
     }
 
-    context!.putImageData(imageData, top_x, top_y);
+    // context!.putImageData(imageData, top_x, top_y);
+    return imageData;
 }
 
 class BlurStack {
